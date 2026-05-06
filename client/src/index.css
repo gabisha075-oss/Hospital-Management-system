@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: 221.2 83.2% 53.3%;
+  --primary-foreground: 210 40% 98%;
+  --background: 210 40% 98%;
+  --foreground: 222.2 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 221.2 83.2% 53.3%;
+  --radius: 0.75rem;
+}
+
+body {
+  font-family: 'Outfit', sans-serif;
+  @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-slate-200/60 shadow-sm transition-all duration-300;
+  }
+
+  .card-hover {
+    @apply hover:shadow-xl hover:shadow-blue-500/5 hover:-translate-y-1;
+  }
+
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl transition-all duration-300 font-semibold shadow-lg shadow-blue-500/20 active:scale-95 disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-6 py-2.5 rounded-xl transition-all duration-300 font-semibold active:scale-95;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all duration-300 placeholder:text-slate-400;
+  }
+
+  .glass {
+    @apply bg-white/70 backdrop-blur-md border border-white/20;
+  }
+
+  .badge {
+    @apply px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider;
+  }
+}
+
+.animate-in {
+  animation: slideIn 0.5s ease-out forwards;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-200 rounded-full hover:bg-slate-300;
+}

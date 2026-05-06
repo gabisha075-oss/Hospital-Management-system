@@ -1,0 +1,444 @@
+import { useEffect, useState, useContext } from 'react';
+import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
+import { toast } from 'react-toastify';
+import { Users, Phone, MapPin, Droplet, Pill, Send, Beaker, Search, X, Trash2, UserCheck } from 'lucide-react';
+
+const Patients = () => {
+    const { user } = useAuth();
+    const [patients, setPatients] = useState([]);
+    const [allPatients, setAllPatients] = useState([]);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [deletePatientId, setDeletePatientId] = useState(null);
+    const [deleting, setDeleting] = useState(false);
+
+    // Doctor prescription states - only for non-admin
+    const [medicines, setMedicines] = useState([]);
+    const [labTests, setLabTests] = useState([]);
+    const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
+    const [selectedPatient, setSelectedPatient] = useState(null);
+    const [prescriptionForm, setPrescriptionForm] = useState({
+        lab_test_ids: [],
+        consultation_fee: '500'
+    });
+    const [medicinesSelected, setMedicinesSelected] = useState([]);
+
+    const isAdmin = user?.role === 'admin';
+
+    useEffect(() => { 
+        const loadData = async () => {
+            fetchPatients(); 
+            if (!isAdmin) {
+                await Promise.allSettled([fetchMedicines(), fetchLabTests()]);
+            }
+        };
+        loadData();
+    }, [user?.role, isAdmin]);
+
+    const fetchPatients = async (search = '') => {
+        try {
+            let url;
+            if (user?.role === 'admin') {
+                url = `/patients${search ? `?search=${encodeURIComponent(search)}` : ''}`;
+            } else {
+                url = `/appointments/doctor/patients${search ? `?search=${encodeURIComponent(search)}` : ''}`;
+            }
+            const res = await api.get(url);
+            setPatients(res.data.patients || res.data);
+        } catch (err) { 
+            toast.error(err.response?.data?.message || 'Failed to load patients'); 
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Debounce search
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            fetchPatients(searchTerm);
+        }, 300);
+        return () => clearTimeout(timeoutId);
+    }, [searchTerm, user?.role]);
+
+    // Doctor-only functions
+    const fetchMedicines = async () => {
+        try {
+            const res = await api.get('/pharmacy/medicines');
+            setMedicines(res.data.medicines);
+        } catch (err) {
+            console.error('Failed to load medicines');
+        }
+    };
+
+    const fetchLabTests = async () => {
+        try {
+            const res = await api.get('/lab-tests/templates/available');
+            setLabTests(res.data.tests || []);
+        } catch (err) {
+            console.error('Failed to load lab tests');
+        }
+    };
+
+    const toggleLabTest = (testId) => {
+        if (isAdmin) return;
+        setPrescriptionForm(prev => ({
+            ...prev,
+            lab_test_ids: prev.lab_test_ids.includes(testId)
+                ? prev.lab_test_ids.filter(id => id !== testId)
+                : [...prev.lab_test_ids, testId]
+        }));
+    };
+
+    const toggleMedicine = (medId) => {
+        setMedicinesSelected(prev => {
+            const existing = prev.find(m => m.id === medId);
+            if (existing) {
+                return prev.filter(m => m.id !== medId);
+            } else {
+                return [...prev, { id: medId, quantity: 1, dosage: '', instructions: '' }];
+            }
+        });
+    };
+
+    const updateMedicineField = (medId, field, value) => {
+        setMedicinesSelected(prev => prev.map(m => 
+            m.id === medId ? { ...m, [field]: value } : m
+        ));
+    };
+
+    const handlePrescribe = async (e) => {
+        e.preventDefault();
+        try {
+            const payload = {
+                ...prescriptionForm,
+                medicines: medicinesSelected,
+                patient_id: selectedPatient.id,
+                appointment_id: null,
+                consultation_fee: parseFloat(prescriptionForm.consultation_fee) || 0
+            };
+            await api.post('/prescriptions', payload);
+            toast.success('Direct consultation completed! Bill & flow updated.');
+            await api.patch('/patient-flow/status', { 
+                patient_id: selectedPatient.id, 
+                status: 'completed_consultation' 
+            });
+            setShowPrescriptionModal(false);
+            setSelectedPatient(null);
+            setPrescriptionForm({ lab_test_ids: [], consultation_fee: '500' });
+            setMedicinesSelected([]);
+            fetchPatients(searchTerm);
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'Failed to issue prescription');
+        }
+    };
+
+    return (
+        <div className="space-y-10 animate-in">
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 bg-white p-10 rounded-[2.5rem] border border-slate-200/60 shadow-xl shadow-slate-200/10">
+                <div className="flex items-center gap-6">
+                    <div className="w-20 h-20 bg-blue-600 text-white rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/40">
+                        <Users size={40} strokeWidth={1.5} />
+                    </div>
+                    <div>
+                        <h1 className="text-4xl font-black text-slate-900 tracking-tight">{isAdmin ? 'All Patients' : 'My Patients'}</h1>
+                        <p className="text-slate-500 mt-1 font-semibold flex items-center gap-2">
+                            <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                            {isAdmin ? 'Hospital-wide patient registry (Admin)' : 'Patients assigned to you'}
+                        </p>
+                    </div>
+                </div>
+                <div className="flex gap-4 p-2 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="px-6 py-2 text-center">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Patients</p>
+                        <p className="text-xl font-black text-slate-900">{patients.length}</p>
+                    </div>
+                    {isAdmin && (
+                        <div className="px-6 py-2 text-center">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Admin</p>
+                            <UserCheck className="w-5 h-5 mx-auto text-red-500 mt-1" />
+                        </div>
+                    )}
+                </div>
+            </header>
+
+            <div className="mb-8">
+                <label className="block text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <Search size={18} />
+                    Search Patients
+                </label>
+                <div className="relative">
+                    <input
+                        type="text"
+                        placeholder="Search by patient name..."
+                        className="input-field pl-12 pr-12 w-full max-w-lg h-12"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                    {searchTerm && (
+                        <button
+                            type="button"
+                            onClick={() => setSearchTerm('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                            <X size={18} />
+                        </button>
+                    )}
+                </div>
+                <p className="text-xs text-slate-500 mt-2">{patients.length} patients found</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {loading ? (
+                    <div className="col-span-full text-center py-20">
+                        <div className="animate-spin w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full mx-auto mb-4"></div>
+                        <p>Loading patients...</p>
+                    </div>
+                ) : patients.map(p => (
+                    <div key={p.id} className="group bg-white p-8 rounded-3xl border border-slate-200 shadow-lg hover:shadow-2xl transition-all hover:-translate-y-2 cursor-pointer">
+                        <div className="flex items-center gap-4 mb-6">
+                            <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-2xl flex items-center justify-center font-black text-2xl shadow-2xl">
+                                {p.name[0]}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="font-black text-xl text-slate-900 truncate">{p.name}</h3>
+                                <p className="text-sm text-slate-500 truncate">{p.email}</p>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 mb-8">
+                            <div>
+                                <p className="text-xs font-bold text-slate-400 uppercase mb-1 tracking-wide">Age</p>
+                                <p className="text-lg font-bold text-slate-900">{p.age || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-slate-400 uppercase mb-1 tracking-wide">Blood Group</p>
+                                <p className="text-lg font-bold text-red-600">{p.blood_group || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-slate-400 uppercase mb-1 tracking-wide">Phone</p>
+                                <p className="text-lg font-bold text-slate-900">{p.phone || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-slate-400 uppercase mb-1 tracking-wide">{isAdmin ? 'Type' : 'Type'}</p>
+                                <p className="text-lg font-bold text-slate-900">{p.patient_type || 'N/A'}</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            {!isAdmin ? (
+                                <button
+                                    onClick={() => {
+                                        setSelectedPatient(p);
+                                        setPrescriptionForm({ lab_test_ids: [], consultation_fee: '500' });
+                                        setMedicinesSelected([]);
+                                        setShowPrescriptionModal(true);
+                                    }}
+                                    className="flex-1 btn-primary py-3 px-6 font-bold flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all"
+                                >
+                                    <Pill size={18} />
+                                    Prescribe
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={() => {
+                                        setDeletePatientId(p.id);
+                                        setShowDeleteModal(true);
+                                    }}
+                                    className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 px-6 font-bold flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all"
+                                >
+                                    <Trash2 size={18} />
+                                    Delete
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Delete Modal */}
+            {showDeleteModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl p-8 shadow-2xl max-w-md w-full">
+                        <h2 className="text-xl font-bold text-slate-900 mb-4">Confirm Delete</h2>
+                        <p className="text-slate-600 mb-6">This will permanently delete the patient and their user account. This action cannot be undone.</p>
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => setShowDeleteModal(false)}
+                                className="flex-1 py-3 px-4 border border-slate-200 rounded-xl text-slate-700 font-bold hover:bg-slate-50 transition-all"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={async () => {
+                                    setDeleting(true);
+                                    try {
+                                        await api.delete(`/patients/${deletePatientId}`);
+                                        toast.success('Patient deleted successfully');
+                                        fetchPatients(searchTerm);
+                                    } catch (err) {
+                                        toast.error(err.response?.data?.message || 'Delete failed');
+                                    } finally {
+                                        setDeleting(false);
+                                        setShowDeleteModal(false);
+                                    }
+                                }}
+                                disabled={deleting}
+                                className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all"
+                            >
+                                {deleting ? 'Deleting...' : 'Delete Patient'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Prescription Modal - Doctor only */}
+            {!isAdmin && showPrescriptionModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-2xl p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-900">Direct Consultation & Prescription</h2>
+                                <p className="text-slate-500 mt-1">Patient: <span className="font-semibold text-slate-900">{selectedPatient?.name}</span>
+                                    <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-bold">Direct</span>
+                                </p>
+                            </div>
+                            <button onClick={() => setShowPrescriptionModal(false)} className="text-slate-400 hover:text-slate-600 text-xl font-bold">×</button>
+                        </div>
+
+                        <form onSubmit={handlePrescribe} className="space-y-6">
+                            {/* Consultation Fee */}
+                            <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                                <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                                    Fixed Consultation Fee <span className="text-lg font-black text-blue-600">₹500</span>
+                                </label>
+                                <input
+                                    type="number"
+                                    value="500"
+                                    readOnly
+                                    className="input-field h-10 bg-blue-50 border-blue-200 text-blue-900 font-bold cursor-not-allowed"
+                                />
+                                <p className="text-xs text-slate-600 mt-1">Standard fee for consultation</p>
+                            </div>
+
+                            {/* Medicines Section */}
+                            <div className="border-t pt-6">
+                                <label className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                                    <Pill size={16} className="text-green-600" /> Medicines (Optional - Multi-select)
+                                </label>
+                                <div className="space-y-2 max-h-[300px] overflow-y-auto bg-slate-50 p-4 rounded-xl">
+                                    {medicines.map(med => {
+                                        const selectedMed = medicinesSelected.find(m => m.id === med.id);
+                                        return (
+                                            <div key={med.id} className="flex items-start gap-3 p-3 hover:bg-white rounded-xl cursor-pointer transition-all border border-slate-100 group">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={!!selectedMed}
+                                                    onChange={() => toggleMedicine(med.id)}
+                                                    className="rounded w-4 h-4 cursor-pointer mt-1 flex-shrink-0"
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <span className="font-semibold text-slate-900">{med.name}</span>
+                                                        <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                                                            Stock: {med.stock > 0 ? med.stock : 'Out'}
+                                                        </span>
+                                                    </div>
+                                                    {selectedMed && (
+                                                        <div className="space-y-2 pt-2 border-t border-slate-100">
+                                                            <div className="flex gap-2">
+                                                                <input
+                                                                    type="number"
+                                                                    placeholder="Qty"
+                                                                    className="input-field flex-1 text-xs h-8"
+                                                                    min="1"
+                                                                    value={selectedMed.quantity}
+                                                                    onChange={(e) => updateMedicineField(med.id, 'quantity', parseInt(e.target.value) || 1)}
+                                                                />
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="Dosage e.g. 1-0-1"
+                                                                    className="input-field flex-1 text-xs h-8"
+                                                                    value={selectedMed.dosage}
+                                                                    onChange={(e) => updateMedicineField(med.id, 'dosage', e.target.value)}
+                                                                />
+                                                            </div>
+                                                            <textarea
+                                                                className="input-field text-xs min-h-[60px]"
+                                                                placeholder="Instructions..."
+                                                                value={selectedMed.instructions}
+                                                                onChange={(e) => updateMedicineField(med.id, 'instructions', e.target.value)}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <p className="text-xs text-slate-600 mt-2">Selected: {medicinesSelected.length} medicines</p>
+                            </div>
+
+                            {/* Lab Tests */}
+                            {labTests.length > 0 && (
+                                <div className="border-t pt-6">
+                                    <label className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                                        <Beaker size={16} className="text-orange-600" />
+                                        Lab Tests (Optional)
+                                    </label>
+                                    <div className="space-y-2 max-h-[200px] overflow-y-auto bg-slate-50 p-4 rounded-xl">
+                                        {labTests.map(test => (
+                                            <label key={test.id} className="flex items-center gap-3 p-3 hover:bg-white rounded-xl cursor-pointer transition-all">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={prescriptionForm.lab_test_ids.includes(test.id)}
+                                                    onChange={() => toggleLabTest(test.id)}
+                                                    className="w-5 h-5 rounded cursor-pointer text-blue-600"
+                                                />
+                                                <div>
+                                                    <span className="font-semibold text-slate-900 block">{test.test_name || test.name}</span>
+                                                    <span className="text-xs text-slate-500">{test.test_category}</span>
+                                                </div>
+                                            </label>
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-slate-600 mt-2">Selected: {prescriptionForm.lab_test_ids.length} tests</p>
+                                </div>
+                            )}
+
+                            <div className="flex gap-3 pt-6 border-t">
+                                <button 
+                                    type="button" 
+                                    onClick={() => setShowPrescriptionModal(false)}
+                                    className="flex-1 py-3 px-6 border border-slate-200 rounded-xl text-slate-700 font-bold hover:bg-slate-50 transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    type="submit"
+                                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all"
+                                >
+                                    <Send size={18} />
+                                    Complete Consultation
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {loading ? (
+                <div className="flex items-center justify-center py-20 col-span-full">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                </div>
+            ) : patients.length === 0 ? (
+                <div className="text-center py-20 col-span-full">
+                    <Users className="w-24 h-24 text-slate-300 mx-auto mb-6" />
+                    <h3 className="text-2xl font-bold text-slate-900 mb-2">No patients found</h3>
+                    <p className="text-slate-500 max-w-md mx-auto">{searchTerm ? `No patients match "${searchTerm}"` : 'No patients assigned to you yet'}</p>
+                </div>
+            ) : null}
+        </div>
+    );
+};
+export default Patients;
